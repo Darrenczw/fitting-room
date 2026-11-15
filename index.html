@@ -34,13 +34,16 @@
 <main id="home" class="screen" aria-label="Lookbook">
   <header class="navbar" id="navbar">
     <div class="navbar-compact" aria-hidden="true">Fitting Room</div>
+    <div class="nav-actions">
+      <button class="pill" id="selectBtn" hidden>Select</button>
+      <button class="avatars" id="openMe" aria-label="Your photos and settings">
+        <img id="avFace" alt=""><img id="avBody" alt="">
+      </button>
+    </div>
   </header>
   <div class="scroller" id="scroller">
     <div class="largetitle">
       <h1>Fitting Room</h1>
-      <button class="avatars" id="openMe" aria-label="Your photos and settings">
-        <img id="avFace" alt=""><img id="avBody" alt="">
-      </button>
     </div>
     <div class="segmented" role="tablist" id="filters">
       <button role="tab" aria-selected="true" data-f="all">All</button>
@@ -58,6 +61,11 @@
   <div class="bottombar">
     <p class="offline" id="offline" hidden>Try On needs internet. Your looks still work offline.</p>
     <button class="btn-primary" id="tryOn"><svg><use href="#i-plus"/></svg>Try On</button>
+    <div class="selbar" id="selbar" hidden>
+      <button class="bar-icon" id="selShare" aria-label="Share selected looks" disabled><svg><use href="#i-share"/></svg></button>
+      <span id="selCount">Select Items</span>
+      <button class="bar-icon danger" id="selDelete" aria-label="Delete selected looks" disabled><svg><use href="#i-trash"/></svg></button>
+    </div>
   </div>
 </main>
 
@@ -75,7 +83,6 @@
     <span class="v-before" id="vBefore" hidden>Before</span>
   </div>
   <div class="v-items" id="vItems"></div>
-  <div class="v-tags segmented dark" id="vTags" role="radiogroup" aria-label="Decision"></div>
   <footer class="v-toolbar">
     <button class="v-icon" id="vShare" aria-label="Save or share"><svg><use href="#i-share"/></svg></button>
     <button class="v-icon" id="vAgain" aria-label="Try again"><svg><use href="#i-again"/></svg></button>
@@ -172,14 +179,6 @@
 
 <!-- Action sheet -->
 <div class="sheet-backdrop" id="backdrop" hidden></div>
-<div class="actionsheet" id="actionsheet" hidden role="dialog" aria-label="Choose a photo">
-  <div class="as-group">
-    <button id="asLibrary"><svg><use href="#i-photo"/></svg>Photo Library</button>
-    <button id="asCamera"><svg><use href="#i-camera"/></svg>Take Photo</button>
-  </div>
-  <button class="as-cancel" id="asCancel">Cancel</button>
-</div>
-
 <div class="actionsheet" id="confirmSheet" hidden role="alertdialog" aria-labelledby="cfTitle">
   <div class="as-group">
     <p class="as-msg"><strong id="cfTitle"></strong><span id="cfBody"></span></p>
@@ -191,7 +190,6 @@
 <div class="toast" id="toast" role="status" hidden></div>
 
 <input type="file" id="pickLibrary" accept="image/*" hidden>
-<input type="file" id="pickCamera" accept="image/*" capture="environment" hidden>
 <input type="file" id="pickMe" accept="image/*" hidden>
 
 <script src="app.js" type="module"></script>

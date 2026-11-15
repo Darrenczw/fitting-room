@@ -32,7 +32,7 @@ img{display:block}
 .navbar.scrolled{background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);box-shadow:0 .5px 0 var(--sep)}
 .navbar.scrolled .navbar-compact{opacity:1;transform:none}
 .scroller{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:calc(44px + var(--safe-t)) 0 calc(96px + var(--safe-b))}
-.largetitle{display:flex;align-items:flex-end;justify-content:space-between;padding:4px 16px 8px}
+.largetitle{display:flex;align-items:flex-end;justify-content:space-between;padding:6px 16px 8px}
 .largetitle h1{font:700 34px/41px var(--display);letter-spacing:.37px}
 .avatars{display:flex;padding:4px 0 6px}
 .avatars img{width:36px;height:36px;border-radius:50%;object-fit:cover;background:var(--fill);box-shadow:0 0 0 2px var(--bg)}
@@ -196,3 +196,20 @@ img{display:block}
 .v-stage img{transition:transform .25s var(--ease)}
 .viewer.dragging .v-stage img{transition:none}
 .viewer.vt{animation:none}
+
+/* Select mode (Photos-style) */
+.nav-actions{position:absolute;right:16px;bottom:5px;display:flex;align-items:center;gap:10px}
+.nav-actions .avatars{padding:0}
+.nav-actions .avatars img{width:32px;height:32px}
+.pill{height:30px;padding:0 14px;border-radius:15px;background:var(--fill);color:var(--blue);font-size:15px;font-weight:600;letter-spacing:-.24px}
+.pill:active{opacity:.6}
+.tile .check{position:absolute;right:6px;bottom:6px;width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;display:none;place-items:center;box-shadow:0 0 0 1.5px #fff}
+.tile .check svg{width:14px;height:14px}
+.tile.sel .check{display:grid}
+.tile.sel::after{content:"";position:absolute;inset:0;background:rgba(255,255,255,.22)}
+body.selecting .grid{touch-action:pan-y}
+body.selecting .tile .dot{display:none}
+.selbar{height:50px;display:flex;align-items:center;justify-content:space-between;font-size:15px;font-weight:600}
+.bar-icon{width:44px;height:44px;display:grid;place-items:center;color:var(--blue);border-radius:22px}
+.bar-icon.danger{color:var(--red)}
+.bar-icon:disabled{color:var(--label3)}

@@ -1,6 +1,6 @@
-// Fitting Room — prototype app shell (v0.1)
-// Everything is stored on the phone (IndexedDB). Try-on is SIMULATED until the
-// Cloudflare helper exists (milestone A4.1): it returns a demo result after a pause.
+// Fitting Room (v0.2)
+// Photos and looks are stored on the phone only (IndexedDB). Try-ons go through the
+// private Cloudflare helper (fitting-room-ai), which holds the Gemini key and stores nothing.
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -60,6 +60,27 @@ async function shrink(file, max = 1600) {
   } catch (err) { console.warn('shrink failed', err); }
   return file; // last resort: keep the original photo
 }
+const AI = 'https://fitting-room-ai.darren-chow-1.workers.dev';
+async function toB64(blob) {
+  const buf = new Uint8Array(await blob.arrayBuffer()); let out = '';
+  for (let i = 0; i < buf.length; i += 0x8000) out += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return btoa(out);
+}
+const img64 = async (blob) => ({ mime: blob.type || 'image/jpeg', data: await toB64(blob) });
+async function ai(path, body, signal) {
+  const pass = await db.get('meta', 'passphrase');
+  if (!pass) throw Object.assign(new Error('Open your private setup link on this phone first.'), { code: 'locked' });
+  let r;
+  try {
+    r = await fetch(AI + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Passphrase': pass }, body: JSON.stringify(body), signal });
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    throw Object.assign(new Error('Couldn’t reach the AI. Check your internet and try again.'), { code: 'network' });
+  }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(d.message || 'The AI had a problem. Try again.'), { code: d.code || 'http_' + r.status });
+  return d;
+}
 const fetchBlob = (p) => fetch(p).then(r => { if (!r.ok) throw new Error(p); return r.blob(); });
 
 /* ---------- state ---------- */
@@ -80,7 +101,7 @@ function ask(title, body, yes, destructive = true) {
     $('#cfTitle').textContent = title; $('#cfBody').textContent = body || '';
     const y = $('#cfYes'); y.textContent = yes; y.className = destructive ? 'destructive' : '';
     const sh = $('#confirmSheet'), bd = $('#backdrop');
-    const done = v => { sh.hidden = true; bd.hidden = true; bd.onclick = closeSheet; res(v); };
+    const done = v => { sh.hidden = true; bd.hidden = true; bd.onclick = null; res(v); };
     y.onclick = () => done(true); $('#cfNo').onclick = () => done(false); bd.onclick = () => done(false);
     bd.hidden = false; sh.hidden = false; $('#cfNo').focus();
   });
@@ -98,11 +119,6 @@ async function load() {
 function renderAvatars() {
   $('#avFace').src = url(me.face); $('#avBody').src = url(me.body);
 }
-function statusLabel(l) {
-  if (l.status === 'bought') return l.cat === 'hair' ? 'Got the cut' : 'Bought';
-  if (l.status === 'skipped') return 'Skipped';
-  return '';
-}
 function renderGrid() {
   const list = looks.filter(l => filter === 'all' || FILTER_OF[l.cat] === filter || (filter === 'hair' && l.items?.some(i => i.cat === 'hair')));
   const g = $('#grid'); g.textContent = '';
@@ -110,18 +126,19 @@ function renderGrid() {
     const t = document.createElement('button');
     t.className = 'tile';
     t.setAttribute('role', 'listitem');
-    t.setAttribute('aria-label', `${CATS[l.cat] || 'Look'}${statusLabel(l) ? ', ' + statusLabel(l) : ''}${l.isNew ? ', new' : ''}`);
+    t.setAttribute('aria-label', `${CATS[l.cat] || 'Look'}${l.isNew ? ', new' : ''}`);
     const img = new Image(); img.src = url(l.result); img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
     const orig = new Image(); orig.className = 'orig'; orig.alt = ''; orig.loading = 'lazy'; orig.src = url(l.original === 'face' ? me.face : me.body);
     t.append(img, orig);
-    const s = statusLabel(l);
-    if (s) { const c = document.createElement('span'); c.className = 'cap' + (l.status === 'skipped' ? ' skipped' : ''); c.textContent = s; t.append(c); }
+    const ck = document.createElement('span'); ck.className = 'check'; ck.innerHTML = '<svg><use href="#i-check"/></svg>'; t.append(ck);
     if (l.isNew) { const d = document.createElement('span'); d.className = 'dot'; t.append(d); }
     t.dataset.id = l.id;
-    bindPeek(t, () => t.classList.add('peek'), () => t.classList.remove('peek'), () => openViewer(l, img));
+    if (selected.has(l.id)) t.classList.add('sel');
+    bindPeek(t, () => { if (!selecting) t.classList.add('peek'); }, () => t.classList.remove('peek'), () => (selecting ? toggleSel(l.id) : openViewer(l, img)));
     g.append(t);
   }
   $('#empty').hidden = looks.length > 0;
+  $('#selectBtn').hidden = !looks.length;
   $('#count').textContent = list.length ? `${list.length} ${list.length === 1 ? 'Look' : 'Looks'}` : (looks.length ? 'Nothing here yet' : '');
 }
 // Press-and-hold shows the original photo; a quick tap opens.
@@ -139,6 +156,55 @@ function bindPeek(el, on, off, tap) {
   el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tap?.(); } });
 }
 
+let selecting = false;
+const selected = new Set();
+function setSelecting(on) {
+  selecting = on; selected.clear();
+  document.body.classList.toggle('selecting', on);
+  $('#selectBtn').textContent = on ? 'Cancel' : 'Select';
+  $('#tryOn').hidden = on; $('#selbar').hidden = !on;
+  updateSel();
+}
+function toggleSel(id) { selected.has(id) ? selected.delete(id) : selected.add(id); updateSel(); }
+function updateSel() {
+  $$('.tile').forEach(t => t.classList.toggle('sel', selected.has(+t.dataset.id)));
+  const n = selected.size;
+  $('#selCount').textContent = n ? `${n} ${n === 1 ? 'Look' : 'Looks'} Selected` : 'Select Items';
+  $('#selDelete').disabled = !n; $('#selShare').disabled = !n;
+}
+$('#selectBtn').onclick = () => setSelecting(!selecting);
+{ // drag sideways across tiles to select a run of them, like Photos; vertical drags still scroll
+  const g = $('#grid'); let start = null, active = false, mode = true, base = null, sx = 0, sy = 0;
+  g.addEventListener('pointerdown', e => { if (!selecting) return; start = e.target.closest('.tile'); sx = e.clientX; sy = e.clientY; active = false; });
+  g.addEventListener('pointermove', e => {
+    if (!selecting || !start) return;
+    if (!active) {
+      const dx = Math.abs(e.clientX - sx), dy = Math.abs(e.clientY - sy);
+      if (dx > 10 && dx > dy) { active = true; mode = !selected.has(+start.dataset.id); base = new Set(selected); }
+      else if (dy > 10) { start = null; return; } else return;
+    }
+    const t = document.elementFromPoint(e.clientX, e.clientY)?.closest('.tile'); if (!t) return;
+    const tiles = $$('.tile', g), a = tiles.indexOf(start), b = tiles.indexOf(t);
+    selected.clear(); base.forEach(id => selected.add(id));
+    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) { const id = +tiles[i].dataset.id; mode ? selected.add(id) : selected.delete(id); }
+    updateSel();
+  });
+  const end = () => { start = null; active = false; };
+  g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end);
+}
+$('#selDelete').onclick = async () => {
+  const n = selected.size; if (!n) return;
+  if (!(await ask(n === 1 ? 'Delete this look?' : `Delete ${n} looks?`, 'This can’t be undone.', n === 1 ? 'Delete Look' : `Delete ${n} Looks`))) return;
+  for (const id of selected) await db.del('looks', id);
+  looks = looks.filter(l => !selected.has(l.id));
+  setSelecting(false); renderGrid();
+};
+$('#selShare').onclick = async () => {
+  const files = looks.filter(l => selected.has(l.id)).map((l, i) => new File([l.result], `fitting-room-${i + 1}.jpg`, { type: l.result.type || 'image/jpeg' }));
+  if (navigator.canShare?.({ files })) { try { await navigator.share({ files }); } catch {} }
+  else toast('Sharing isn’t available here.');
+};
+
 $('#filters').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   filter = b.dataset.f;
@@ -153,11 +219,18 @@ async function openViewer(l, fromImg) {
   if (fromImg && motionOK()) {
     fromImg.style.viewTransitionName = 'look';
     const vt = document.startViewTransition(async () => {
+  const key = location.hash.match(/key=([\w-]{16,})/);
+  if (key) {
+    await db.put('meta', key[1], 'passphrase');
+    history.replaceState(null, '', location.pathname + location.search);
+    setTimeout(() => toast('Fitting Room is set up on this phone.'), 600);
+  }
       fromImg.style.viewTransitionName = '';
       $('#vResult').style.viewTransitionName = 'look';
       $('#viewer').classList.add('vt');
       await showViewer(l);
     });
+    vt.ready.catch(() => {}); vt.updateCallbackDone.catch(() => {});
     await vt.finished.catch(() => {});
     $('#vResult').style.viewTransitionName = '';
     $('#viewer').classList.remove('vt');
@@ -172,7 +245,7 @@ async function showViewer(l) {
   $('#vOriginal').src = url(l.original === 'face' ? me.face : me.body);
   $('#vTitle').textContent = l.items?.length > 1 ? 'Full look' : (CATS[l.cat] || 'Look');
   const d = new Date(l.created);
-  $('#vSub').textContent = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) + (l.simulated ? ' · prototype' : '');
+  $('#vSub').textContent = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) + (l.model ? ' · ' + (l.model === 'flash' ? 'Flash' : 'Pro') : '');
   const vi = $('#vItems'); vi.textContent = '';
   if (l.items?.some(i => i.blob)) {
     for (const it of l.items) if (it.blob) {
@@ -186,18 +259,10 @@ async function showViewer(l) {
   } else if (l.words) {
     const p = document.createElement('span'); p.className = 'words'; p.textContent = l.words; vi.append(p);
   }
-  const tags = $('#vTags'); tags.textContent = '';
-  for (const [k, label] of [['bought', l.cat === 'hair' ? 'Got the cut' : 'Bought'], ['skipped', 'Skipped']]) {
-    const b = document.createElement('button');
-    b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', l.status === k); b.textContent = label;
-    b.onclick = async () => { l.status = l.status === k ? null : k; await db.put('looks', l); openViewerTags(); renderGrid(); };
-    tags.append(b);
-  }
   $('#vHint').style.opacity = 1; setTimeout(() => ($('#vHint').style.opacity = 0), 2200);
   $('#viewer').hidden = false;
   renderGrid();
 }
-function openViewerTags() { $$('#vTags button').forEach((b, i) => b.setAttribute('aria-checked', current.status === (i ? 'skipped' : 'bought'))); }
 { // viewer: press and hold anywhere on the photo to see the original
   const st = $('#vStage');
   const on = () => { st.classList.add('peek'); $('#vBefore').hidden = false; $('#vHint').style.opacity = 0; };
@@ -206,7 +271,7 @@ function openViewerTags() { $$('#vTags button').forEach((b, i) => b.setAttribute
   let sy = null, dy = 0, drag = false;
   const img = $('#vResult'), v = $('#viewer');
   let peekT = null;
-  st.addEventListener('pointerdown', e => { sy = e.clientY; dy = 0; drag = false; clearTimeout(peekT); peekT = setTimeout(on, 150); st.setPointerCapture?.(e.pointerId); });
+  st.addEventListener('pointerdown', e => { sy = e.clientY; dy = 0; drag = false; clearTimeout(peekT); peekT = setTimeout(on, 150); try { st.setPointerCapture(e.pointerId); } catch {} });
   st.addEventListener('pointermove', e => {
     if (sy == null) return;
     dy = e.clientY - sy;
@@ -240,7 +305,8 @@ function closeViewer() {
   if (tileImg && motionOK()) {
     $('#vResult').style.viewTransitionName = 'look';
     const vt = document.startViewTransition(() => { $('#vResult').style.viewTransitionName = ''; finish(); tileImg.style.viewTransitionName = 'look'; });
-    vt.finished.finally(() => (tileImg.style.viewTransitionName = ''));
+    vt.ready.catch(() => {}); vt.updateCallbackDone.catch(() => {});
+    vt.finished.catch(() => {}).finally(() => (tileImg.style.viewTransitionName = ''));
   } else finish();
 }
 $('#vClose').onclick = closeViewer;
@@ -258,24 +324,29 @@ $('#vDelete').onclick = async () => {
 $('#vAgain').onclick = () => { const l = current; $('#viewer').hidden = true; runTryOn(l.items.map(i => ({ ...i })), l); };
 
 /* ---------- compose ---------- */
-function openSheet() { $('#backdrop').hidden = false; $('#actionsheet').hidden = false; }
-function closeSheet() { $('#backdrop').hidden = true; $('#actionsheet').hidden = true; }
-$('#tryOn').onclick = async () => {
+// Try On opens the iPhone's own menu (Photo Library / Take Photo) straight away: one tap.
+// The click must stay synchronous so iOS treats it as the user's tap.
+$('#tryOn').onclick = () => {
   if (!navigator.onLine) return toast('Try On needs internet.');
-  if ((await spent()) >= CAP && !(await ask('You’ve reached US$' + CAP + ' this month', 'Each try-on still costs about US$0.13.', 'Try On Anyway', false))) return;
-  draft = []; openSheet();
+  draft = []; $('#pickLibrary').click();
 };
-$('#backdrop').onclick = closeSheet; $('#asCancel').onclick = closeSheet;
-$('#asLibrary').onclick = () => { closeSheet(); $('#pickLibrary').click(); };
-$('#asCamera').onclick = () => { closeSheet(); $('#pickCamera').click(); };
-for (const id of ['#pickLibrary', '#pickCamera']) $(id).addEventListener('change', async e => {
+$('#pickLibrary').addEventListener('change', async e => {
   const files = [...e.target.files].slice(0, 3 - draft.length); e.target.value = '';
   if (!files.length) return;
   try {
-    for (const f of files) draft.push({ blob: await shrink(f), cat: 'outfit' });
+    for (const f of files) { const it = { blob: await shrink(f), cat: 'outfit', labelling: true }; draft.push(it); autoLabel(it); }
     renderCompose(); $('#compose').hidden = false;
   } catch (err) { toast('Couldn’t open that photo. Try another one.'); console.error(err); }
 });
+async function autoLabel(it) {
+  try {
+    const small = await shrink(it.blob, 512);
+    const { cat } = await ai('/label', { image: await img64(small) });
+    if (!it.userSet && CATS[cat]) it.cat = cat;
+  } catch {}
+  it.labelling = false;
+  if (!$('#compose').hidden) renderCompose();
+}
 function renderCompose() {
   const c = $('#cItems'); c.textContent = '';
   draft.forEach((it, i) => {
@@ -285,44 +356,50 @@ function renderCompose() {
     rm.innerHTML = '<svg><use href="#i-close"/></svg>';
     rm.onclick = () => { draft.splice(i, 1); draft.length ? renderCompose() : ($('#compose').hidden = true); };
     const sel = document.createElement('select'); sel.setAttribute('aria-label', 'What is it');
-    for (const [k, v] of Object.entries(CATS)) sel.add(new Option(v, k, false, k === it.cat));
-    sel.onchange = () => (it.cat = sel.value);
+    if (it.labelling) sel.add(new Option('Checking…', '', true, true));
+    for (const [k, v] of Object.entries(CATS)) sel.add(new Option(v, k, false, !it.labelling && k === it.cat));
+    sel.onchange = () => { if (sel.value) { it.cat = sel.value; it.userSet = true; it.labelling = false; } };
     w.append(im, rm, sel); c.append(w);
   });
   $('#cAdd').hidden = draft.length >= 3;
-  $('#cNote').textContent = draft.length > 1 ? 'All items go on you in one picture.' : 'Check the label. In the finished app the AI fills it in.';
+  $('#cNote').textContent = draft.length > 1 ? 'All items go on you in one picture.' : 'Fitting Room fills in the label. Tap it to change.';
 }
 $('#cCancel').onclick = () => { $('#compose').hidden = true; draft = []; };
-$('#cAdd').onclick = openSheet;
-$('#cGo').onclick = () => { $('#compose').hidden = true; runTryOn(draft); };
+$('#cAdd').onclick = () => $('#pickLibrary').click();
+$('#cGo').onclick = async () => {
+  if ((await spent()) >= CAP && !(await ask('You’ve reached US$' + CAP + ' this month', 'Each try-on still costs about US$' + COST[await model()].toFixed(2) + '.', 'Try On Anyway', false))) return;
+  $('#compose').hidden = true; runTryOn(draft.map(({ blob, cat }) => ({ blob, cat })));
+};
 
-/* ---------- try-on (simulated) ---------- */
-// Simulated results use photos that no demo look uses, so a try-on never shows a duplicate.
-const DEMO_RESULT = { hair: 'demo/flash-A-hair.jpg', shoes: 'demo/4-shoes-sneakers.jpg', default: 'demo/5-full-outfit.jpg' };
+/* ---------- try-on (real, through the private helper) ---------- */
 async function runTryOn(items, replace) {
   const onlyHair = items.every(i => i.cat === 'hair');
   const original = onlyHair ? 'face' : 'body';
   $('#wImg').src = url(me[original]); $('#waiting').hidden = false;
   const t0 = Date.now(); const tick = setInterval(() => ($('#wTime').textContent = Math.floor((Date.now() - t0) / 1000) + ' s'), 250);
   $('#wTime').textContent = '0 s';
-  const cancelled = await new Promise(r => {
-    const tm = setTimeout(() => r(false), 3200);
-    cancelTry = () => { clearTimeout(tm); r(true); };
-  });
-  cancelTry = null; clearInterval(tick); $('#waiting').hidden = true;
-  if (cancelled) return toast('Cancelled. Nothing was charged.');
-  const cat = items.length > 1 ? 'outfit' : items[0].cat;
-  let result;
-  let placeholder = false;
-  try { result = await fetchBlob(DEMO_RESULT[onlyHair ? 'hair' : cat === 'shoes' ? 'shoes' : 'default']); }
-  catch { result = me[original]; placeholder = true; }
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort('timeout'), 90000);
+  cancelTry = () => ctl.abort('cancel');
   const m = await model();
+  let res = null, err = null;
+  try {
+    res = await ai('/tryon', {
+      model: m,
+      person: await img64(me[original]),
+      items: await Promise.all(items.map(async i => ({ cat: i.cat, image: await img64(i.blob) }))),
+    }, ctl.signal);
+  } catch (e) { err = e; }
+  clearTimeout(timer); cancelTry = null; clearInterval(tick); $('#waiting').hidden = true;
+  if (ctl.signal.aborted) return toast(ctl.signal.reason === 'cancel' ? 'Cancelled.' : 'That took too long. Try again.');
+  if (err) return toast(err.message, 4500);
+  const result = await (await fetch(`data:${res.mime};base64,${res.image}`)).blob();
   await db.put('meta', (await spent()) + COST[m], 'spend-' + monthKey());
-  const look = { cat: onlyHair ? 'hair' : cat, result, original, items, status: null, created: Date.now(), isNew: false, simulated: true };
+  const cat = onlyHair ? 'hair' : items.length > 1 ? 'outfit' : items[0].cat;
+  const look = { cat, result, original, items, created: Date.now(), isNew: false, model: m, ms: res.ms };
   look.id = await db.put('looks', look);
   if (replace) toast('New version added to your looks.');
   looks.unshift(look); renderGrid(); openViewer(look);
-  if (placeholder) toast('Prototype: the AI isn’t connected yet, so this shows your own photo.', 4200);
 }
 $('#wCancel').onclick = () => cancelTry?.();
 
@@ -380,11 +457,17 @@ async function loadDemo() {
 }
 
 /* ---------- boot ---------- */
-addEventListener('unhandledrejection', e => toast('Something went wrong: ' + (e.reason?.message || e.reason || 'unknown')));
+addEventListener('unhandledrejection', e => e.reason?.name === 'AbortError' || toast('Something went wrong: ' + (e.reason?.message || e.reason || 'unknown')));
 addEventListener('error', e => toast('Something went wrong: ' + (e.message || 'unknown')));
 function onlineUI() { $('#offline').hidden = navigator.onLine; $('#tryOn').disabled = !navigator.onLine; }
 addEventListener('online', onlineUI); addEventListener('offline', onlineUI);
 (async () => {
+  const key = location.hash.match(/key=([\w-]{16,})/);
+  if (key) {
+    await db.put('meta', key[1], 'passphrase');
+    history.replaceState(null, '', location.pathname + location.search);
+    setTimeout(() => toast('Fitting Room is set up on this phone.'), 600);
+  }
   fetch('demo/demo.json', { method: 'HEAD' }).then(r => { if (!r.ok) throw 0; }).catch(() => { $('#setupDemo').hidden = true; $('#loadDemo').hidden = true; });
   await load();
   onlineUI();
