@@ -41,13 +41,24 @@ const db = {
 /* ---------- image helpers ---------- */
 const urls = new WeakMap();
 const url = (blob) => { if (!blob) return ''; if (!urls.has(blob)) urls.set(blob, URL.createObjectURL(blob)); return urls.get(blob); };
+async function decode(file) {
+  try { return await createImageBitmap(file); } catch {}
+  const u = URL.createObjectURL(file);
+  try { const im = new Image(); im.src = u; await im.decode(); return im; }
+  finally { setTimeout(() => URL.revokeObjectURL(u), 1000); }
+}
 async function shrink(file, max = 1600) {
-  const bmp = await createImageBitmap(file);
-  const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
-  const c = document.createElement('canvas');
-  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-  return new Promise(r => c.toBlob(r, 'image/jpeg', 0.86));
+  try {
+    const src = await decode(file);
+    const w = src.width || src.naturalWidth, h = src.height || src.naturalHeight;
+    const k = Math.min(1, max / Math.max(w, h));
+    const c = document.createElement('canvas');
+    c.width = Math.round(w * k); c.height = Math.round(h * k);
+    c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+    const out = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.86));
+    if (out) return out;
+  } catch (err) { console.warn('shrink failed', err); }
+  return file; // last resort: keep the original photo
 }
 const fetchBlob = (p) => fetch(p).then(r => { if (!r.ok) throw new Error(p); return r.blob(); });
 
@@ -260,8 +271,10 @@ $('#asCamera').onclick = () => { closeSheet(); $('#pickCamera').click(); };
 for (const id of ['#pickLibrary', '#pickCamera']) $(id).addEventListener('change', async e => {
   const files = [...e.target.files].slice(0, 3 - draft.length); e.target.value = '';
   if (!files.length) return;
-  for (const f of files) draft.push({ blob: await shrink(f), cat: draft.length ? 'outfit' : 'outfit' });
-  renderCompose(); $('#compose').hidden = false;
+  try {
+    for (const f of files) draft.push({ blob: await shrink(f), cat: 'outfit' });
+    renderCompose(); $('#compose').hidden = false;
+  } catch (err) { toast('Couldn’t open that photo. Try another one.'); console.error(err); }
 });
 function renderCompose() {
   const c = $('#cItems'); c.textContent = '';
@@ -330,7 +343,8 @@ $$('#me input[name=model]').forEach(r => r.onchange = () => db.put('meta', r.val
 $$('.me-slot, .slot').forEach(b => b.onclick = () => { pickSlot = b.dataset.slot; $('#pickMe').click(); });
 $('#pickMe').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  me[pickSlot] = await shrink(f); await db.put('me', me[pickSlot], pickSlot);
+  try { me[pickSlot] = await shrink(f); await db.put('me', me[pickSlot], pickSlot); }
+  catch (err) { toast('Couldn’t save that photo. Try another one.'); console.error(err); return; }
   renderAvatars(); renderSetup();
   if (!$('#me').hidden) openMe();
   renderGrid();
@@ -366,6 +380,8 @@ async function loadDemo() {
 }
 
 /* ---------- boot ---------- */
+addEventListener('unhandledrejection', e => toast('Something went wrong: ' + (e.reason?.message || e.reason || 'unknown')));
+addEventListener('error', e => toast('Something went wrong: ' + (e.message || 'unknown')));
 function onlineUI() { $('#offline').hidden = navigator.onLine; $('#tryOn').disabled = !navigator.onLine; }
 addEventListener('online', onlineUI); addEventListener('offline', onlineUI);
 (async () => {
