@@ -146,8 +146,10 @@ async function load() {
   looks = (await db.all('looks')).sort((a, b) => b.created - a.created);
 }
 function renderAvatars() {
-  $('#avFace').src = url(me.face); $('#avBody').src = url(me.body);
+  for (const [id, b] of [['#avFace', me.face], ['#avBody', me.body]]) { $(id).hidden = !b; if (b) $(id).src = url(b); }
 }
+// Use the best photo of you for this try-on, or the other one if only one is saved.
+const pickOriginal = (preferred) => me[preferred] ? preferred : (preferred === 'face' ? 'body' : 'face');
 function renderGrid() {
   const list = looks.filter(l => filter === 'all' || FILTER_OF[l.cat] === filter || (filter === 'hair' && l.items?.some(i => i.cat === 'hair')));
   const g = $('#grid'); g.textContent = '';
@@ -364,35 +366,50 @@ $('#pickLibrary').addEventListener('change', async e => {
   const files = [...e.target.files].slice(0, 3 - draft.length); e.target.value = '';
   if (!files.length) return;
   try {
-    for (const f of files) { const it = { blob: await shrink(f), cat: 'outfit', labelling: true }; draft.push(it); autoLabel(it); }
+    for (const f of files) { const it = { blob: await shrink(f), cat: null, labelling: true }; draft.push(it); autoLabel(it); }
     renderCompose(); $('#compose').hidden = false;
   } catch (err) { toast('Couldn’t open that photo. Try another one.'); console.error(err); }
 });
 async function autoLabel(it) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
   try {
     const small = await shrink(it.blob, 512);
-    const { cat } = await ai('/label', { image: await img64(small) });
-    if (!it.userSet && CATS[cat]) it.cat = cat;
+    const { cat } = await ai('/label', { image: await img64(small) }, ctl.signal);
+    if (!it.userSet && CATS[cat]) { it.cat = cat; it.detected = true; }
   } catch {}
-  it.labelling = false;
+  clearTimeout(t); it.labelling = false;
   if (!$('#compose').hidden) renderCompose();
 }
 function renderCompose() {
   const c = $('#cItems'); c.textContent = '';
+  c.classList.toggle('single', draft.length === 1);
   draft.forEach((it, i) => {
-    const w = document.createElement('div'); w.className = 'c-item';
-    const im = new Image(); im.src = url(it.blob); im.alt = 'Item ' + (i + 1);
+    const row = document.createElement('div'); row.className = 'c-row';
+    const im = new Image(); im.src = url(it.blob); im.alt = 'Item ' + (i + 1); im.className = 'c-thumb';
+    const side = document.createElement('div'); side.className = 'c-side';
+    const st = document.createElement('p'); st.className = 'c-status' + (it.labelling ? ' busy' : '');
+    st.textContent = it.labelling ? 'Working out what this is…' : it.userSet ? 'What is it?' : it.detected ? 'Looks like ' + CATS[it.cat].toLowerCase() + '. Tap to change.' : 'What is it? Tap one.';
+    const chips = document.createElement('div'); chips.className = 'chips'; chips.setAttribute('role', 'radiogroup'); chips.setAttribute('aria-label', 'What is it');
+    for (const [k, v] of Object.entries(CATS)) {
+      const b = document.createElement('button'); b.className = 'chip'; b.textContent = v;
+      b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', !it.labelling && it.cat === k);
+      b.onclick = () => { it.cat = k; it.userSet = true; it.labelling = false; renderCompose(); };
+      chips.append(b);
+    }
     const rm = document.createElement('button'); rm.className = 'rm'; rm.setAttribute('aria-label', 'Remove item');
     rm.innerHTML = '<svg><use href="#i-close"/></svg>';
     rm.onclick = () => { draft.splice(i, 1); draft.length ? renderCompose() : ($('#compose').hidden = true); };
-    const sel = document.createElement('select'); sel.setAttribute('aria-label', 'What is it');
-    if (it.labelling) sel.add(new Option('Checking…', '', true, true));
-    for (const [k, v] of Object.entries(CATS)) sel.add(new Option(v, k, false, !it.labelling && k === it.cat));
-    sel.onchange = () => { if (sel.value) { it.cat = sel.value; it.userSet = true; it.labelling = false; } };
-    w.append(im, rm, sel); c.append(w);
+    side.append(st, chips); row.append(im, side, rm); c.append(row);
   });
   $('#cAdd').hidden = draft.length >= 3;
-  $('#cNote').textContent = draft.length > 1 ? 'All items go on you in one picture.' : 'Fitting Room fills in the label. Tap it to change.';
+  const busy = draft.some(it => it.labelling), missing = draft.some(it => !it.cat);
+  $('#cGo').disabled = busy || missing;
+  $('#cGo').textContent = busy ? 'Checking…' : 'Try On';
+  const needsBody = draft.some(it => it.cat && it.cat !== 'hair') && !me.body;
+  const needsFace = draft.length && draft.every(it => it.cat === 'hair') && !me.face;
+  $('#cNote').textContent = needsBody ? 'Tip: add a full-body photo of you for clothes and shoes. Your face photo will be used for now.'
+    : needsFace ? 'Tip: add a face photo for haircuts. Your full-body photo will be used for now.'
+    : draft.length > 1 ? 'All items go on you in one picture.' : '';
 }
 $('#cCancel').onclick = () => { $('#compose').hidden = true; draft = []; };
 $('#cAdd').onclick = () => $('#pickLibrary').click();
@@ -404,7 +421,7 @@ $('#cGo').onclick = async () => {
 /* ---------- try-on (real, through the private helper) ---------- */
 async function runTryOn(items, replace) {
   const onlyHair = items.every(i => i.cat === 'hair');
-  const original = onlyHair ? 'face' : 'body';
+  const original = pickOriginal(onlyHair ? 'face' : 'body');
   $('#wImg').src = url(me[original]); $('#waiting').hidden = false;
   const t0 = Date.now(); const tick = setInterval(() => ($('#wTime').textContent = Math.floor((Date.now() - t0) / 1000) + ' s'), 250);
   $('#wTime').textContent = '0 s';
@@ -437,7 +454,7 @@ $('#wCancel').onclick = () => cancelTry?.();
 /* ---------- me & settings ---------- */
 let pickSlot = null;
 async function openMe() {
-  $$('#me .me-slot').forEach(s => ($('img', s).src = url(me[s.dataset.slot])));
+  $$('#me .me-slot').forEach(s => { const b = me[s.dataset.slot]; $('img', s).hidden = !b; if (b) $('img', s).src = url(b); $('small', s).textContent = b ? 'Change' : 'Add'; });
   const m = await model(); $$('#me input[name=model]').forEach(r => (r.checked = r.value === m));
   const s = await spent();
   $('#spent').textContent = 'US$' + s.toFixed(2);
@@ -466,7 +483,7 @@ $('#loadDemo').onclick = async () => { await loadDemo(); $('#me').hidden = true;
 /* ---------- setup ---------- */
 function renderSetup() {
   $$('#setup .slot').forEach(s => { const im = $('img', s); const b = me[s.dataset.slot]; im.hidden = !b; if (b) im.src = url(b); });
-  $('#setupDone').disabled = !(me.face && me.body);
+  $('#setupDone').disabled = !(me.face || me.body);
 }
 $('#setupDone').onclick = () => { $('#setup').hidden = true; renderAvatars(); renderGrid(); };
 $('#setupDemo').onclick = async () => { await loadDemo(); $('#setup').hidden = true; };
@@ -503,7 +520,7 @@ addEventListener('online', onlineUI); addEventListener('offline', onlineUI);
   await load();
   hasKey = !!(await db.get('meta', 'passphrase')); renderKeyRow();
   onlineUI();
-  if (!me.face || !me.body) { renderSetup(); $('#setup').hidden = false; }
+  if (!me.face && !me.body) { renderSetup(); $('#setup').hidden = false; }
   renderAvatars(); renderGrid();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
