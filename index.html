@@ -77,9 +77,11 @@
     <span class="v-icon-spacer"></span>
   </header>
   <div class="v-stage" id="vStage">
-    <img id="vResult" alt="">
-    <img id="vOriginal" alt="" class="v-original">
-    <span class="v-hint" id="vHint">Hold to see before</span>
+    <div class="v-zoom" id="vZoom">
+      <img id="vResult" alt="">
+      <img id="vOriginal" alt="" class="v-original">
+    </div>
+    <span class="v-hint" id="vHint">Hold to see before · pinch to zoom</span>
     <span class="v-before" id="vBefore" hidden>Before</span>
   </div>
   <div class="v-items" id="vItems"></div>
@@ -93,7 +95,7 @@
 <!-- Inspiration overlay -->
 <section id="inspo" class="inspo" hidden aria-label="Inspiration photo">
   <button class="v-icon" id="inspoClose" aria-label="Close"><svg><use href="#i-close"/></svg></button>
-  <img id="inspoImg" alt="Inspiration">
+  <div class="inspo-stage" id="inspoStage"><div class="inspo-zoom" id="inspoZoom"><img id="inspoImg" alt="Inspiration"></div></div>
 </section>
 
 <!-- Compose: pick items, confirm -->
@@ -134,7 +136,11 @@
       <button class="me-slot" data-slot="face"><img alt=""><span>Face</span><small>Change</small></button>
       <button class="me-slot" data-slot="body"><img alt=""><span>Full body</span><small>Change</small></button>
     </div>
-    <p class="group-foot">Face is used for hair. Full body is used for clothes and shoes.</p>
+    <p class="group-foot">Face is used for hair. Full body is used for clothes and shoes. One is enough.</p>
+
+    <p class="group-label">More angles of your face</p>
+    <div class="list angles-list"><div class="angles" id="angles"></div></div>
+    <p class="group-foot">Add up to 3 face photos from other angles (side, three-quarter, chin up or down). They help results look like you from every angle. Tap one to remove it.</p>
 
     <p class="group-label">Try-on quality</p>
     <div class="list">

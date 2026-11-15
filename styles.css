@@ -251,3 +251,20 @@ body.selecting .tile .dot{display:none}
 .c-row .rm svg{width:12px;height:12px}
 
 .group-foot.version{text-align:center;padding-top:24px}
+
+/* Zoomable photos (viewer + inspiration) */
+.v-zoom,.inspo-zoom{grid-area:1/1;width:100%;height:100%;display:grid;place-items:center;transform-origin:50% 50%;will-change:transform}
+.v-zoom img{grid-area:1/1;max-width:100%;max-height:100%;object-fit:contain;pointer-events:none}
+.inspo{display:block;padding:0;background:rgba(0,0,0,var(--fade,.94))}
+.inspo-stage{position:absolute;inset:calc(var(--safe-t) + 52px) 0 calc(var(--safe-b) + 16px);display:grid;touch-action:none;user-select:none;-webkit-user-select:none}
+.inspo-zoom img{max-width:calc(100% - 32px);max-height:100%;border-radius:12px;pointer-events:auto;-webkit-user-drag:none}
+.inspo .v-icon{z-index:2}
+.inspo.dragging .v-icon{opacity:var(--fade,1)}
+
+/* More angles */
+.angles-list{padding:12px}
+.angles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.angle{aspect-ratio:3/4;border-radius:8px;overflow:hidden;background:var(--fill)}
+.angle img{width:100%;height:100%;object-fit:cover}
+.angle.add{display:grid;place-items:center;color:var(--blue)}
+.angle.add svg{width:24px;height:24px}

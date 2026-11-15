@@ -6,7 +6,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const COST = { pro: 0.13, flash: 0.07 };
 const CAP = 5;
-const VERSION = '0.2.3';
+const VERSION = '0.2.5';
 const CATS = { hair: 'Hair', top: 'Top', bottoms: 'Bottoms', outfit: 'Full outfit', shoes: 'Shoes', accessory: 'Accessory' };
 const FILTER_OF = { hair: 'hair', top: 'clothes', bottoms: 'clothes', outfit: 'clothes', accessory: 'clothes', shoes: 'shoes' };
 
@@ -114,7 +114,7 @@ async function ai(path, body, signal) {
 const fetchBlob = (p) => fetch(p).then(r => { if (!r.ok) throw new Error(p); return r.blob(); });
 
 /* ---------- state ---------- */
-let me = { face: null, body: null };
+let me = { face: null, body: null, angles: [] }; // angles: up to 3 extra face photos
 let looks = [];
 let filter = 'all';
 let current = null;      // look open in viewer
@@ -144,6 +144,7 @@ async function model() { return (await db.get('meta', 'model')) || 'pro'; }
 async function load() {
   me.face = await db.get('me', 'face');
   me.body = await db.get('me', 'body');
+  me.angles = (await db.get('me', 'angles')) || [];
   looks = (await db.all('looks')).sort((a, b) => b.created - a.created);
 }
 function renderAvatars() {
@@ -271,7 +272,7 @@ async function openViewer(l, fromImg) {
   await showViewer(l);
 }
 async function showViewer(l) {
-  current = l;
+  current = l; viewerGestures.reset(false);
   if (l.isNew) { l.isNew = false; await db.put('looks', l); }
   $('#vResult').src = url(l.result);
   $('#vOriginal').src = url(l.original === 'face' ? me.face : me.body);
@@ -295,44 +296,103 @@ async function showViewer(l) {
   $('#viewer').hidden = false;
   renderGrid();
 }
-{ // viewer: press and hold anywhere on the photo to see the original
-  const st = $('#vStage');
-  const on = () => { st.classList.add('peek'); $('#vBefore').hidden = false; $('#vHint').style.opacity = 0; };
-  const off = () => { st.classList.remove('peek'); $('#vBefore').hidden = true; };
-  // Swipe down to close, like Photos. A vertical drag cancels the before peek.
-  let sy = null, dy = 0, drag = false;
-  const img = $('#vResult'), v = $('#viewer');
-  let peekT = null;
-  st.addEventListener('pointerdown', e => { sy = e.clientY; dy = 0; drag = false; clearTimeout(peekT); peekT = setTimeout(on, 150); try { st.setPointerCapture(e.pointerId); } catch {} });
-  st.addEventListener('pointermove', e => {
-    if (sy == null) return;
-    dy = e.clientY - sy;
-    if (Math.abs(dy) > 6) clearTimeout(peekT);
-    if (!drag && dy > 12) { drag = true; off(); v.classList.add('dragging'); }
-    if (drag) {
-      const d = Math.max(0, dy);
-      img.style.transform = 'translateY(' + d + 'px) scale(' + (1 - Math.min(d, 400) / 1600) + ')';
-      v.style.setProperty('--fade', String(1 - Math.min(d, 300) / 400));
+// Photos-style gestures for a full-screen photo: pinch to zoom, double-tap to zoom,
+// drag to pan when zoomed, swipe down to close, and (optionally) press-and-hold.
+function photoGestures(stage, layer, o = {}) {
+  let s = 1, tx = 0, ty = 0, start = null, mode = null, lastTap = 0, holdT = null;
+  const pts = new Map();
+  const center = () => { const r = stage.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height }; };
+  const apply = (anim) => { layer.style.transition = anim ? 'transform .28s var(--ease)' : 'none'; layer.style.transform = `translate(${tx}px,${ty}px) scale(${s})`; };
+  const clamp = () => { const c = center(), mx = c.w * (s - 1) / 2, my = c.h * (s - 1) / 2; tx = Math.max(-mx, Math.min(mx, tx)); ty = Math.max(-my, Math.min(my, ty)); };
+  const reset = (anim = true) => { s = 1; tx = 0; ty = 0; apply(anim); };
+  const zoomed = () => s > 1.01;
+  stage.addEventListener('pointerdown', e => {
+    try { stage.setPointerCapture(e.pointerId); } catch {}
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2) {
+      clearTimeout(holdT); if (mode === 'hold') o.onHoldEnd?.();
+      const [a, b] = [...pts.values()];
+      start = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, s, tx, ty, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; mode = 'pinch'; return;
     }
+    if (pts.size > 2) return;
+    start = { x: e.clientX, y: e.clientY, tx, ty }; mode = null;
+    if (!zoomed() && o.onHoldStart) holdT = setTimeout(() => { mode = 'hold'; o.onHoldStart(); }, 160);
   });
-  const end = () => {
-    clearTimeout(peekT);
-    if (sy == null) return;
-    sy = null; off();
-    if (drag && dy > 110) { closeViewer(); return; }
-    v.classList.remove('dragging'); v.style.removeProperty('--fade'); img.style.transform = '';
+  stage.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (mode === 'pinch' && pts.size >= 2) {
+      const [a, b] = [...pts.values()], c = center();
+      const ns = Math.max(1, Math.min(5, start.s * Math.hypot(a.x - b.x, a.y - b.y) / start.d));
+      const px = (start.cx - c.x - start.tx) / start.s, py = (start.cy - c.y - start.ty) / start.s; // photo point under the fingers
+      tx = (a.x + b.x) / 2 - c.x - ns * px; ty = (a.y + b.y) / 2 - c.y - ns * py; s = ns; clamp(); apply(false); return;
+    }
+    if (!start || mode === 'hold' || mode === 'pinch') return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    if (!mode && Math.hypot(dx, dy) > 8) {
+      clearTimeout(holdT);
+      mode = zoomed() ? 'pan' : (dy > Math.abs(dx) && o.onDismiss ? 'dismiss' : 'none');
+      if (mode === 'dismiss') o.onDragStart?.();
+    }
+    if (mode === 'pan') { tx = start.tx + dx; ty = start.ty + dy; clamp(); apply(false); }
+    if (mode === 'dismiss') { const d = Math.max(0, dy); layer.style.transition = 'none'; layer.style.transform = `translateY(${d}px) scale(${1 - Math.min(d, 400) / 1600})`; o.onDrag?.(d); }
+  });
+  const end = (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId); clearTimeout(holdT);
+    if (mode === 'pinch') {
+      if (pts.size === 1) { const p = [...pts.values()][0]; start = { x: p.x, y: p.y, tx, ty }; mode = 'pan'; }
+      else if (!pts.size) { if (s < 1.05) reset(); mode = null; start = null; }
+      return;
+    }
+    if (pts.size) return;
+    if (mode === 'hold') o.onHoldEnd?.();
+    else if (mode === 'dismiss') {
+      const close = e.clientY - start.y > 110 && e.type === 'pointerup';
+      if (close) o.onDismiss(); else { reset(); o.onDragEnd?.(); }
+    } else if (!mode && e.type === 'pointerup') {
+      const now = Date.now();
+      if (now - lastTap < 300) {
+        lastTap = 0;
+        if (zoomed()) reset();
+        else { const c = center(); s = 2.5; tx = -(e.clientX - c.x) * 1.5; ty = -(e.clientY - c.y) * 1.5; clamp(); apply(true); }
+      } else { lastTap = now; const tgt = e.target; setTimeout(() => { if (lastTap === now) o.onTap?.(tgt); }, 300); }
+    }
+    mode = null; start = null;
   };
-  st.addEventListener('pointerup', end);
-  st.addEventListener('pointercancel', end);
-  st.addEventListener('contextmenu', e => e.preventDefault());
+  stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
+  stage.addEventListener('contextmenu', e => e.preventDefault());
+  return { reset, isZoomed: zoomed };
 }
+const viewerGestures = (() => {
+  const st = $('#vStage'), v = $('#viewer');
+  return photoGestures(st, $('#vZoom'), {
+    onHoldStart: () => { st.classList.add('peek'); $('#vBefore').hidden = false; $('#vHint').style.opacity = 0; },
+    onHoldEnd: () => { st.classList.remove('peek'); $('#vBefore').hidden = true; },
+    onDragStart: () => v.classList.add('dragging'),
+    onDrag: (d) => v.style.setProperty('--fade', String(1 - Math.min(d, 300) / 400)),
+    onDragEnd: () => { v.classList.remove('dragging'); v.style.removeProperty('--fade'); },
+    onDismiss: () => closeViewer(),
+  });
+})();
+const inspoGestures = (() => {
+  const box = $('#inspo');
+  const close = () => { box.hidden = true; box.classList.remove('dragging'); box.style.removeProperty('--fade'); inspoGestures.reset(false); };
+  return photoGestures($('#inspoStage'), $('#inspoZoom'), {
+    onDragStart: () => box.classList.add('dragging'),
+    onDrag: (d) => box.style.setProperty('--fade', String(1 - Math.min(d, 300) / 360)),
+    onDragEnd: () => { box.classList.remove('dragging'); box.style.removeProperty('--fade'); },
+    onDismiss: close,
+    onTap: (t) => { if (t.tagName !== 'IMG') close(); }, // tap outside the photo closes it
+  });
+})();
 function closeViewer() {
   const id = current?.id;
   const tileImg = id != null ? document.querySelector('.tile[data-id="' + id + '"] img') : null;
   const finish = () => {
     const v = $('#viewer');
     v.hidden = true; v.classList.remove('dragging'); v.style.removeProperty('--fade');
-    $('#vResult').style.transform = ''; current = null;
+    viewerGestures.reset(false); current = null;
   };
   if (tileImg && motionOK()) {
     $('#vResult').style.viewTransitionName = 'look';
@@ -342,7 +402,7 @@ function closeViewer() {
   } else finish();
 }
 $('#vClose').onclick = closeViewer;
-$('#inspoClose').onclick = () => ($('#inspo').hidden = true);
+$('#inspoClose').onclick = () => { $('#inspo').hidden = true; inspoGestures.reset(false); };
 $('#vShare').onclick = async () => {
   const f = new File([current.result], 'fitting-room.jpg', { type: 'image/jpeg' });
   if (navigator.canShare?.({ files: [f] })) { try { await navigator.share({ files: [f] }); } catch {} }
@@ -435,6 +495,7 @@ async function runTryOn(items, replace) {
     res = await ai('/tryon', {
       model: m,
       person: await img64(me[original]),
+      extras: await Promise.all(me.angles.slice(0, 3).map(img64)),
       items: await Promise.all(items.map(async i => ({ cat: i.cat, image: await img64(i.blob) }))),
     }, ctl.signal);
   } catch (e) { err = e; }
@@ -461,8 +522,27 @@ async function openMe() {
   $('#spent').textContent = 'US$' + s.toFixed(2);
   $('#meterFill').style.width = Math.min(100, (s / CAP) * 100) + '%';
   $('#meter').classList.toggle('over', s >= CAP);
+  renderAngles();
   $('#version').textContent = 'Fitting Room ' + VERSION;
   $('#me').hidden = false;
+}
+function renderAngles() {
+  const box = $('#angles'); box.textContent = '';
+  me.angles.forEach((b, i) => {
+    const t = document.createElement('button'); t.className = 'angle'; t.setAttribute('aria-label', 'Remove angle photo ' + (i + 1));
+    const im = new Image(); im.src = url(b); im.alt = ''; t.append(im);
+    t.onclick = async () => {
+      if (!(await ask('Remove this photo?', 'It won’t be used for new try-ons.', 'Remove Photo'))) return;
+      me.angles.splice(i, 1); await db.put('me', me.angles, 'angles'); renderAngles();
+    };
+    box.append(t);
+  });
+  if (me.angles.length < 3) {
+    const add = document.createElement('button'); add.className = 'angle add'; add.setAttribute('aria-label', 'Add a photo from another angle');
+    add.innerHTML = '<svg><use href="#i-plus"/></svg>';
+    add.onclick = () => { pickSlot = 'angle'; $('#pickMe').click(); };
+    box.append(add);
+  }
 }
 $('#openMe').onclick = openMe;
 $('#meDone').onclick = () => ($('#me').hidden = true);
@@ -470,7 +550,10 @@ $$('#me input[name=model]').forEach(r => r.onchange = () => db.put('meta', r.val
 $$('.me-slot, .slot').forEach(b => b.onclick = () => { pickSlot = b.dataset.slot; $('#pickMe').click(); });
 $('#pickMe').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try { me[pickSlot] = await shrink(f); await db.put('me', me[pickSlot], pickSlot); }
+  try {
+    if (pickSlot === 'angle') { me.angles.push(await shrink(f)); await db.put('me', me.angles, 'angles'); renderAngles(); return; }
+    me[pickSlot] = await shrink(f); await db.put('me', me[pickSlot], pickSlot);
+  }
   catch (err) { toast('Couldn’t save that photo. Try another one.'); console.error(err); return; }
   renderAvatars(); renderSetup();
   if (!$('#me').hidden) openMe();
