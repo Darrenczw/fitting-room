@@ -240,7 +240,8 @@ body.selecting .tile .dot{display:none}
 .c-items.single .chips{justify-content:center}
 .c-side{flex:1;min-width:0}
 .c-status{font-size:15px;line-height:20px;font-weight:600;margin:2px 0 10px}
-.c-status.busy{color:var(--label2);background:linear-gradient(90deg,var(--label2) 30%,var(--label) 50%,var(--label2) 70%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1.6s linear infinite}
+.c-status.busy{color:var(--label2);animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.45}}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{height:34px;padding:0 14px;border-radius:17px;background:var(--fill);font-size:15px;font-weight:500;color:var(--label)}
 .chip[aria-checked="true"]{background:var(--blue);color:#fff;font-weight:600}
@@ -248,3 +249,5 @@ body.selecting .tile .dot{display:none}
 .c-row .rm{position:absolute;top:-6px;left:84px;width:24px;height:24px;border-radius:12px;background:var(--bg3);color:var(--label2);display:grid;place-items:center;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .c-items.single .c-row .rm{left:calc(50% + min(26vw,110px) - 18px)}
 .c-row .rm svg{width:12px;height:12px}
+
+.group-foot.version{text-align:center;padding-top:24px}

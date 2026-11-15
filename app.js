@@ -6,6 +6,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const COST = { pro: 0.13, flash: 0.07 };
 const CAP = 5;
+const VERSION = '0.2.3';
 const CATS = { hair: 'Hair', top: 'Top', bottoms: 'Bottoms', outfit: 'Full outfit', shoes: 'Shoes', accessory: 'Accessory' };
 const FILTER_OF = { hair: 'hair', top: 'clothes', bottoms: 'clothes', outfit: 'clothes', accessory: 'clothes', shoes: 'shoes' };
 
@@ -460,6 +461,7 @@ async function openMe() {
   $('#spent').textContent = 'US$' + s.toFixed(2);
   $('#meterFill').style.width = Math.min(100, (s / CAP) * 100) + '%';
   $('#meter').classList.toggle('over', s >= CAP);
+  $('#version').textContent = 'Fitting Room ' + VERSION;
   $('#me').hidden = false;
 }
 $('#openMe').onclick = openMe;
@@ -522,5 +524,5 @@ addEventListener('online', onlineUI); addEventListener('offline', onlineUI);
   onlineUI();
   if (!me.face && !me.body) { renderSetup(); $('#setup').hidden = false; }
   renderAvatars(); renderGrid();
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {});
 })();
