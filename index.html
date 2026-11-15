@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Fitting Room">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+<title>Fitting Room</title>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4.5v15M4.5 12h15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 4.5L7.5 12l7.5 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3v12M7.5 7.5L12 3l4.5 4.5M5.5 11.5v7.5a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-7.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9.5 6.5V4.5h5v2M6.5 6.5l1 13a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4l1-13M10 10.5v6.5M14 10.5v6.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-again" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-photo" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="8.5" cy="10" r="1.6" fill="currentColor"/><path d="M3.5 17l5-5 4 4 2.5-2.5 5.5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="12" cy="12.5" r="3.4" fill="none" stroke="currentColor" stroke-width="1.9"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<!-- Home -->
+<main id="home" class="screen" aria-label="Lookbook">
+  <header class="navbar" id="navbar">
+    <div class="navbar-compact" aria-hidden="true">Fitting Room</div>
+  </header>
+  <div class="scroller" id="scroller">
+    <div class="largetitle">
+      <h1>Fitting Room</h1>
+      <button class="avatars" id="openMe" aria-label="Your photos and settings">
+        <img id="avFace" alt=""><img id="avBody" alt="">
+      </button>
+    </div>
+    <div class="segmented" role="tablist" id="filters">
+      <button role="tab" aria-selected="true" data-f="all">All</button>
+      <button role="tab" aria-selected="false" data-f="hair">Hair</button>
+      <button role="tab" aria-selected="false" data-f="clothes">Clothes</button>
+      <button role="tab" aria-selected="false" data-f="shoes">Shoes</button>
+    </div>
+    <div class="grid" id="grid" role="list"></div>
+    <div class="empty" id="empty" hidden>
+      <p class="empty-title">No looks yet</p>
+      <p class="empty-body">Pick a screenshot of a haircut or an outfit and see it on you.</p>
+    </div>
+    <p class="count" id="count"></p>
+  </div>
+  <div class="bottombar">
+    <p class="offline" id="offline" hidden>Try On needs internet. Your looks still work offline.</p>
+    <button class="btn-primary" id="tryOn"><svg><use href="#i-plus"/></svg>Try On</button>
+  </div>
+</main>
+
+<!-- Viewer -->
+<section id="viewer" class="viewer" hidden aria-label="Look">
+  <header class="v-top">
+    <button class="v-icon" id="vClose" aria-label="Back to lookbook"><svg><use href="#i-back"/></svg></button>
+    <div class="v-title"><span id="vTitle"></span><small id="vSub"></small></div>
+    <span class="v-icon-spacer"></span>
+  </header>
+  <div class="v-stage" id="vStage">
+    <img id="vResult" alt="">
+    <img id="vOriginal" alt="" class="v-original">
+    <span class="v-hint" id="vHint">Hold to see before</span>
+    <span class="v-before" id="vBefore" hidden>Before</span>
+  </div>
+  <div class="v-items" id="vItems"></div>
+  <div class="v-tags segmented dark" id="vTags" role="radiogroup" aria-label="Decision"></div>
+  <footer class="v-toolbar">
+    <button class="v-icon" id="vShare" aria-label="Save or share"><svg><use href="#i-share"/></svg></button>
+    <button class="v-icon" id="vAgain" aria-label="Try again"><svg><use href="#i-again"/></svg></button>
+    <button class="v-icon danger" id="vDelete" aria-label="Delete look"><svg><use href="#i-trash"/></svg></button>
+  </footer>
+</section>
+
+<!-- Inspiration overlay -->
+<section id="inspo" class="inspo" hidden aria-label="Inspiration photo">
+  <button class="v-icon" id="inspoClose" aria-label="Close"><svg><use href="#i-close"/></svg></button>
+  <img id="inspoImg" alt="Inspiration">
+</section>
+
+<!-- Compose: pick items, confirm -->
+<section id="compose" class="sheet-screen" hidden aria-label="New try-on">
+  <header class="sheet-nav">
+    <button class="link" id="cCancel">Cancel</button>
+    <strong>New Try-On</strong>
+    <span class="link-spacer"></span>
+  </header>
+  <div class="c-body">
+    <div class="c-items" id="cItems"></div>
+    <button class="add-more" id="cAdd"><svg><use href="#i-plus"/></svg>Add another item</button>
+    <p class="c-note" id="cNote"></p>
+  </div>
+  <div class="bottombar static">
+    <button class="btn-primary" id="cGo">Try On</button>
+  </div>
+</section>
+
+<!-- Waiting -->
+<section id="waiting" class="waiting" hidden aria-label="Making your try-on" aria-live="polite">
+  <div class="w-photo"><img id="wImg" alt=""><div class="w-shimmer"></div></div>
+  <p class="w-title">Fitting it on you</p>
+  <p class="w-time" id="wTime">0 s</p>
+  <button class="btn-secondary" id="wCancel">Cancel</button>
+</section>
+
+<!-- Me & settings -->
+<section id="me" class="sheet-screen grouped" hidden aria-label="Your photos and settings">
+  <header class="sheet-nav">
+    <span class="link-spacer"></span>
+    <strong>You</strong>
+    <button class="link bold" id="meDone">Done</button>
+  </header>
+  <div class="me-body">
+    <p class="group-label">Your photos</p>
+    <div class="me-photos">
+      <button class="me-slot" data-slot="face"><img alt=""><span>Face</span><small>Change</small></button>
+      <button class="me-slot" data-slot="body"><img alt=""><span>Full body</span><small>Change</small></button>
+    </div>
+    <p class="group-foot">Face is used for hair. Full body is used for clothes and shoes.</p>
+
+    <p class="group-label">Try-on quality</p>
+    <div class="list">
+      <label class="row"><span>Pro<small>Best match · about US$0.13</small></span><input type="radio" name="model" value="pro" checked><svg class="check"><use href="#i-check"/></svg></label>
+      <label class="row"><span>Flash<small>Faster · about US$0.07</small></span><input type="radio" name="model" value="flash"><svg class="check"><use href="#i-check"/></svg></label>
+    </div>
+
+    <p class="group-label">This month</p>
+    <div class="list">
+      <div class="row"><span>Spent</span><span class="value" id="spent">US$0.00</span></div>
+      <div class="meter" id="meter"><span id="meterFill"></span></div>
+      <div class="row"><span>Monthly limit</span><span class="value">US$5.00</span></div>
+    </div>
+    <p class="group-foot">Over the limit, Fitting Room asks before each try-on. It never blocks you.</p>
+
+    <div class="list danger-list">
+      <button class="row" id="loadDemo"><span>Load demo looks</span><svg class="chev"><use href="#i-chev"/></svg></button>
+      <button class="row danger" id="eraseAll"><span>Delete all looks</span></button>
+    </div>
+  </div>
+</section>
+
+<!-- Setup -->
+<section id="setup" class="setup" hidden aria-label="Set up your photos">
+  <h1>Fitting Room</h1>
+  <p class="setup-lede">Two photos of you, once. Then try on anything you can screenshot.</p>
+  <div class="setup-slots">
+    <button class="slot" data-slot="face">
+      <span class="slot-frame"><img alt="" hidden><svg><use href="#i-camera"/></svg></span>
+      <strong>Face</strong><small>Facing the camera, hair visible, good light</small>
+    </button>
+    <button class="slot" data-slot="body">
+      <span class="slot-frame"><img alt="" hidden><svg><use href="#i-camera"/></svg></span>
+      <strong>Full body</strong><small>Head to shoes, standing straight</small>
+    </button>
+  </div>
+  <div class="setup-actions">
+    <button class="btn-primary" id="setupDone" disabled>Continue</button>
+    <button class="link" id="setupDemo">Use demo photos</button>
+  </div>
+</section>
+
+<!-- Action sheet -->
+<div class="sheet-backdrop" id="backdrop" hidden></div>
+<div class="actionsheet" id="actionsheet" hidden role="dialog" aria-label="Choose a photo">
+  <div class="as-group">
+    <button id="asLibrary"><svg><use href="#i-photo"/></svg>Photo Library</button>
+    <button id="asCamera"><svg><use href="#i-camera"/></svg>Take Photo</button>
+  </div>
+  <button class="as-cancel" id="asCancel">Cancel</button>
+</div>
+
+<div class="actionsheet" id="confirmSheet" hidden role="alertdialog" aria-labelledby="cfTitle">
+  <div class="as-group">
+    <p class="as-msg"><strong id="cfTitle"></strong><span id="cfBody"></span></p>
+    <button id="cfYes"></button>
+  </div>
+  <button class="as-cancel" id="cfNo">Cancel</button>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<input type="file" id="pickLibrary" accept="image/*" multiple hidden>
+<input type="file" id="pickCamera" accept="image/*" capture="environment" hidden>
+<input type="file" id="pickMe" accept="image/*" hidden>
+
+<script src="app.js" type="module"></script>
+</body>
+</html>
