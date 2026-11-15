@@ -117,10 +117,18 @@
 
 <!-- Waiting -->
 <section id="waiting" class="waiting" hidden aria-label="Making your try-on" aria-live="polite">
-  <div class="w-photo"><img id="wImg" alt=""><div class="w-shimmer"></div></div>
-  <p class="w-title">Fitting it on you</p>
+  <div class="w-scene">
+    <div class="w-photo"><img id="wImg" alt=""><div class="w-scan"></div></div>
+    <div class="w-items" id="wItems"></div>
+  </div>
+  <p class="w-title" id="wStage"></p>
+  <div class="w-track"><span id="wBar"></span></div>
   <p class="w-time" id="wTime">0 s</p>
-  <button class="btn-secondary" id="wCancel">Cancel</button>
+  <p class="w-tip" id="wTip"></p>
+  <div class="w-actions">
+    <button class="btn-secondary" id="wCancel">Cancel</button>
+    <button class="btn-secondary tint" id="wKeep">Keep Browsing</button>
+  </div>
 </section>
 
 <!-- Me & settings -->
@@ -217,7 +225,8 @@
 
 <div class="toast" id="toast" role="status" hidden></div>
 
-<input type="file" id="pickLibrary" accept="image/*" hidden>
+<input type="file" id="pickLibrary" accept="image/*" multiple hidden>
+<input type="file" id="pickAngles" accept="image/*" multiple hidden>
 <input type="file" id="pickMe" accept="image/*" hidden>
 
 <script src="app.js" type="module"></script>

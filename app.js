@@ -6,7 +6,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const COST = { pro: 0.13, flash: 0.07 };
 const CAP = 5;
-const VERSION = '0.2.5';
+const VERSION = '0.2.6';
 const CATS = { hair: 'Hair', top: 'Top', bottoms: 'Bottoms', outfit: 'Full outfit', shoes: 'Shoes', accessory: 'Accessory' };
 const FILTER_OF = { hair: 'hair', top: 'clothes', bottoms: 'clothes', outfit: 'clothes', accessory: 'clothes', shoes: 'shoes' };
 
@@ -152,9 +152,11 @@ function renderAvatars() {
 }
 // Use the best photo of you for this try-on, or the other one if only one is saved.
 const pickOriginal = (preferred) => me[preferred] ? preferred : (preferred === 'face' ? 'body' : 'face');
+const gridList = () => looks.filter(l => filter === 'all' || FILTER_OF[l.cat] === filter || (filter === 'hair' && l.items?.some(i => i.cat === 'hair')));
 function renderGrid() {
-  const list = looks.filter(l => filter === 'all' || FILTER_OF[l.cat] === filter || (filter === 'hair' && l.items?.some(i => i.cat === 'hair')));
+  const list = gridList();
   const g = $('#grid'); g.textContent = '';
+  for (const job of pending) g.append(pendingTile(job));
   for (const l of list) {
     const t = document.createElement('button');
     t.className = 'tile';
@@ -272,7 +274,7 @@ async function openViewer(l, fromImg) {
   await showViewer(l);
 }
 async function showViewer(l) {
-  current = l; viewerGestures.reset(false);
+  current = l; if ($('#viewer').hidden) viewerGestures.reset(false); // keep the slide-in when paging
   if (l.isNew) { l.isNew = false; await db.put('looks', l); }
   $('#vResult').src = url(l.result);
   $('#vOriginal').src = url(l.original === 'face' ? me.face : me.body);
@@ -331,9 +333,10 @@ function photoGestures(stage, layer, o = {}) {
     const dx = e.clientX - start.x, dy = e.clientY - start.y;
     if (!mode && Math.hypot(dx, dy) > 8) {
       clearTimeout(holdT);
-      mode = zoomed() ? 'pan' : (dy > Math.abs(dx) && o.onDismiss ? 'dismiss' : 'none');
+      mode = zoomed() ? 'pan' : (dy > Math.abs(dx) && o.onDismiss ? 'dismiss' : (Math.abs(dx) > Math.abs(dy) && o.onPage ? 'page' : 'none'));
       if (mode === 'dismiss') o.onDragStart?.();
     }
+    if (mode === 'page') { const edge = !o.canPage?.(dx < 0 ? 1 : -1); layer.style.transition = 'none'; layer.style.transform = `translateX(${edge ? dx / 3 : dx}px)`; }
     if (mode === 'pan') { tx = start.tx + dx; ty = start.ty + dy; clamp(); apply(false); }
     if (mode === 'dismiss') { const d = Math.max(0, dy); layer.style.transition = 'none'; layer.style.transform = `translateY(${d}px) scale(${1 - Math.min(d, 400) / 1600})`; o.onDrag?.(d); }
   });
@@ -347,6 +350,10 @@ function photoGestures(stage, layer, o = {}) {
     }
     if (pts.size) return;
     if (mode === 'hold') o.onHoldEnd?.();
+    else if (mode === 'page') {
+      const dx = e.clientX - start.x, dir = dx < 0 ? 1 : -1;
+      if (Math.abs(dx) > 70 && e.type === 'pointerup' && o.canPage?.(dir)) o.onPage(dir); else reset();
+    }
     else if (mode === 'dismiss') {
       const close = e.clientY - start.y > 110 && e.type === 'pointerup';
       if (close) o.onDismiss(); else { reset(); o.onDragEnd?.(); }
@@ -373,8 +380,21 @@ const viewerGestures = (() => {
     onDrag: (d) => v.style.setProperty('--fade', String(1 - Math.min(d, 300) / 400)),
     onDragEnd: () => { v.classList.remove('dragging'); v.style.removeProperty('--fade'); },
     onDismiss: () => closeViewer(),
+    canPage: (dir) => { const l = gridList(), i = l.indexOf(current); return i >= 0 && !!l[i + dir]; },
+    onPage: (dir) => pageViewer(dir),
   });
 })();
+// Slide to the next or previous look, like Photos.
+function pageViewer(dir) {
+  const l = gridList(), next = l[l.indexOf(current) + dir]; if (!next) return;
+  const z = $('#vZoom'), w = $('#vStage').clientWidth;
+  z.style.transition = 'transform .2s var(--ease)'; z.style.transform = `translateX(${-dir * w}px)`;
+  setTimeout(async () => {
+    await showViewer(next);
+    z.style.transition = 'none'; z.style.transform = `translateX(${dir * w}px)`;
+    requestAnimationFrame(() => requestAnimationFrame(() => { z.style.transition = 'transform .24s var(--ease)'; z.style.transform = 'translate(0px,0px) scale(1)'; }));
+  }, 190);
+}
 const inspoGestures = (() => {
   const box = $('#inspo');
   const close = () => { box.hidden = true; box.classList.remove('dragging'); box.style.removeProperty('--fade'); inspoGestures.reset(false); };
@@ -424,7 +444,8 @@ $('#tryOn').onclick = () => {
   draft = []; $('#pickLibrary').click();
 };
 $('#pickLibrary').addEventListener('change', async e => {
-  const files = [...e.target.files].slice(0, 3 - draft.length); e.target.value = '';
+  const all = [...e.target.files], files = all.slice(0, 3 - draft.length); e.target.value = '';
+  if (all.length > files.length) toast('Up to 3 items per try-on. The first ' + files.length + ' were added.');
   if (!files.length) return;
   try {
     for (const f of files) { const it = { blob: await shrink(f), cat: null, labelling: true }; draft.push(it); autoLabel(it); }
@@ -480,16 +501,66 @@ $('#cGo').onclick = async () => {
 };
 
 /* ---------- try-on (real, through the private helper) ---------- */
+// A try-on runs as a "job". You can watch the wait screen or tap Keep Browsing;
+// the job then shows as a tile with a live timer and opens when you tap it.
+let pending = [];        // running jobs
+let watching = null;     // job shown on the wait screen
+const TIPS = {
+  hair: ['Bring 2–3 photos to your barber: front, side and back.', 'Wavy and curly cuts change with humidity, Singapore included.', 'Ask how the cut will grow out over 4–6 weeks.', 'Texture products matter as much as the cut for a messy look.', 'A cut that suits your face shape beats a trending one.'],
+  clothes: ['Usually only one piece in an outfit should be oversized.', 'Wide trousers look cleaner with little or no break at the hem.', 'An untucked shirt should end around mid-zip or lower hip.', 'Dropped shoulder seams make a shirt read as relaxed, even in your size.', 'Matching your belt and shoes calms an outfit down.'],
+  shoes: ['Chunkier shoes balance wide trousers.', 'Slim trousers suit sleek, low-profile shoes.', 'Brown leather goes with more colours than black.', 'White sneakers look sharper with a slight cuff or crop.'],
+};
+const stagesFor = (cat) => cat === 'hair' ? ['Studying the cut', 'Fitting it on you', 'Styling the layers', 'Final touches']
+  : cat === 'shoes' ? ['Looking at the shoes', 'Fitting them on you', 'Matching the light', 'Final touches']
+  : ['Reading the fit', 'Fitting it on you', 'Adjusting the drape', 'Final touches'];
+const tipKey = (cat) => cat === 'hair' ? 'hair' : cat === 'shoes' ? 'shoes' : 'clothes';
+// Expected time from tests: Pro about 18 s (20 s for clothes), Flash about 10 s.
+function progressOf(job) {
+  const t = (Date.now() - job.t0) / 1000, exp = job.model === 'flash' ? 11 : job.cat === 'hair' ? 18 : 21;
+  return t < exp ? 0.9 * t / exp : 0.9 + 0.08 * (1 - Math.exp(-(t - exp) / 12));
+}
+function pendingTile(job) {
+  const t = document.createElement('button'); t.className = 'tile pending'; t.setAttribute('aria-label', 'Try-on in progress');
+  const im = new Image(); im.src = url(me[job.original]); im.alt = '';
+  const ov = document.createElement('span'); ov.className = 'p-ov';
+  ov.innerHTML = '<span class="p-ring"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15"/><circle class="p-arc" cx="18" cy="18" r="15"/></svg></span><b>Fitting…</b><small class="p-time"></small>';
+  t.append(im, ov); t.onclick = () => showWaiting(job); job.tile = t; updatePending(job);
+  return t;
+}
+function updatePending(job) {
+  const p = progressOf(job), secs = Math.floor((Date.now() - job.t0) / 1000);
+  if (job.tile?.isConnected) { $('.p-time', job.tile).textContent = secs + ' s'; $('.p-arc', job.tile).style.strokeDashoffset = String(94.25 * (1 - p)); }
+  if (watching === job && !$('#waiting').hidden) {
+    const st = stagesFor(job.cat);
+    $('#wBar').style.transform = `scaleX(${p})`;
+    $('#wTime').textContent = secs + ' s';
+    const stage = st[Math.min(st.length - 1, Math.floor(p / 0.9 * (st.length - 0.2)))];
+    if ($('#wStage').textContent !== stage + '…') { $('#wStage').textContent = stage + '…'; $('#wStage').classList.remove('swap'); void $('#wStage').offsetWidth; $('#wStage').classList.add('swap'); }
+    const tips = TIPS[tipKey(job.cat)], ti = Math.floor(secs / 5) % tips.length;
+    if ($('#wTip').dataset.i !== String(ti)) { $('#wTip').dataset.i = ti; $('#wTip').textContent = tips[ti]; $('#wTip').classList.remove('swap'); void $('#wTip').offsetWidth; $('#wTip').classList.add('swap'); }
+  }
+}
+setInterval(() => pending.forEach(updatePending), 250);
+function showWaiting(job) {
+  watching = job;
+  $('#wImg').src = url(me[job.original]);
+  const box = $('#wItems'); box.textContent = '';
+  job.items.forEach((it, k) => { const im = new Image(); im.src = url(it.blob); im.alt = ''; im.style.animationDelay = (k * 0.6) + 's'; box.append(im); });
+  $('#wStage').textContent = ''; $('#wTip').dataset.i = '';
+  $('#waiting').hidden = false; updatePending(job);
+}
+function hideWaiting() { $('#waiting').hidden = true; watching = null; }
+$('#wKeep').onclick = () => { hideWaiting(); toast('Still fitting. It will appear in your looks.'); };
+$('#wCancel').onclick = () => { if (watching) watching.ctl.abort('cancel'); };
+
 async function runTryOn(items, replace) {
   const onlyHair = items.every(i => i.cat === 'hair');
   const original = pickOriginal(onlyHair ? 'face' : 'body');
-  $('#wImg').src = url(me[original]); $('#waiting').hidden = false;
-  const t0 = Date.now(); const tick = setInterval(() => ($('#wTime').textContent = Math.floor((Date.now() - t0) / 1000) + ' s'), 250);
-  $('#wTime').textContent = '0 s';
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort('timeout'), 90000);
-  cancelTry = () => ctl.abort('cancel');
+  const cat = onlyHair ? 'hair' : items.length > 1 ? 'outfit' : items[0].cat;
   const m = await model();
+  const job = { items, original, cat, model: m, t0: Date.now(), ctl: new AbortController() };
+  pending.unshift(job); renderGrid(); showWaiting(job);
+  const timer = setTimeout(() => job.ctl.abort('timeout'), 90000);
   let res = null, err = null;
   try {
     res = await ai('/tryon', {
@@ -497,21 +568,23 @@ async function runTryOn(items, replace) {
       person: await img64(me[original]),
       extras: await Promise.all(me.angles.slice(0, 3).map(img64)),
       items: await Promise.all(items.map(async i => ({ cat: i.cat, image: await img64(i.blob) }))),
-    }, ctl.signal);
+    }, job.ctl.signal);
   } catch (e) { err = e; }
-  clearTimeout(timer); cancelTry = null; clearInterval(tick); $('#waiting').hidden = true;
-  if (ctl.signal.aborted) return toast(ctl.signal.reason === 'cancel' ? 'Cancelled.' : 'That took too long. Try again.');
-  if (err?.code === 'locked') { hasKey = false; renderKeyRow(); return openKeySheet(); }
-  if (err) return toast(err.message, 4500);
+  clearTimeout(timer);
+  const wasWatching = watching === job && !$('#waiting').hidden;
+  pending = pending.filter(j => j !== job);
+  if (watching === job) hideWaiting();
+  if (job.ctl.signal.aborted) { renderGrid(); return toast(job.ctl.signal.reason === 'cancel' ? 'Cancelled.' : 'That took too long. Try again.'); }
+  if (err?.code === 'locked') { renderGrid(); hasKey = false; renderKeyRow(); return openKeySheet(); }
+  if (err) { renderGrid(); return toast(err.message, 4500); }
   const result = await (await fetch(`data:${res.mime};base64,${res.image}`)).blob();
   await db.put('meta', (await spent()) + COST[m], 'spend-' + monthKey());
-  const cat = onlyHair ? 'hair' : items.length > 1 ? 'outfit' : items[0].cat;
-  const look = { cat, result, original, items, created: Date.now(), isNew: false, model: m, ms: res.ms };
+  const look = { cat, result, original, items, created: Date.now(), isNew: !wasWatching, model: m, ms: res.ms };
   look.id = await db.put('looks', look);
-  if (replace) toast('New version added to your looks.');
-  looks.unshift(look); renderGrid(); openViewer(look);
+  looks.unshift(look); renderGrid();
+  if (wasWatching) openViewer(look);
+  else toast(replace ? 'Your new version is ready.' : 'Your try-on is ready.');
 }
-$('#wCancel').onclick = () => cancelTry?.();
 
 /* ---------- me & settings ---------- */
 let pickSlot = null;
@@ -540,10 +613,15 @@ function renderAngles() {
   if (me.angles.length < 3) {
     const add = document.createElement('button'); add.className = 'angle add'; add.setAttribute('aria-label', 'Add a photo from another angle');
     add.innerHTML = '<svg><use href="#i-plus"/></svg>';
-    add.onclick = () => { pickSlot = 'angle'; $('#pickMe').click(); };
+    add.onclick = () => $('#pickAngles').click();
     box.append(add);
   }
 }
+$('#pickAngles').addEventListener('change', async e => {
+  const files = [...e.target.files].slice(0, 3 - me.angles.length); e.target.value = '';
+  try { for (const f of files) me.angles.push(await shrink(f)); await db.put('me', me.angles, 'angles'); renderAngles(); }
+  catch (err) { toast('Couldn’t save that photo. Try another one.'); }
+});
 $('#openMe').onclick = openMe;
 $('#meDone').onclick = () => ($('#me').hidden = true);
 $$('#me input[name=model]').forEach(r => r.onchange = () => db.put('meta', r.value, 'model'));
