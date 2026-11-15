@@ -67,9 +67,38 @@ async function toB64(blob) {
   return btoa(out);
 }
 const img64 = async (blob) => ({ mime: blob.type || 'image/jpeg', data: await toB64(blob) });
+let hasKey = false;
+const extractKey = (txt) => (String(txt || '').match(/(?:key=)?([\w-]{24,})/) || [])[1] || '';
+// Checks a key with the helper: a right key gets 400 (empty request), a wrong one gets 401.
+async function checkKey(k) {
+  try {
+    const r = await fetch(AI + '/label', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Passphrase': k }, body: '{}' });
+    return r.status === 400 ? 'ok' : r.status === 401 ? 'wrong' : 'error';
+  } catch { return 'offline'; }
+}
+function openKeySheet() {
+  $('#keyInput').value = ''; $('#keyMsg').textContent = 'Paste the setup link or key you were sent.'; $('#keyMsg').className = '';
+  $('#backdrop').hidden = false; $('#keySheet').hidden = false; $('#backdrop').onclick = closeKeySheet;
+}
+function closeKeySheet() { $('#keySheet').hidden = true; $('#backdrop').hidden = true; $('#backdrop').onclick = null; }
+$('#keyCancel').onclick = closeKeySheet;
+$('#keyPaste').onclick = async () => {
+  try { $('#keyInput').value = await navigator.clipboard.readText(); } catch { $('#keyInput').focus(); }
+};
+$('#keySave').onclick = async () => {
+  const k = extractKey($('#keyInput').value);
+  const msg = $('#keyMsg');
+  if (!k) { msg.textContent = 'That doesn’t look like a setup key.'; msg.className = 'bad'; return; }
+  msg.textContent = 'Checking…'; msg.className = '';
+  const res = await checkKey(k);
+  if (res === 'ok') { await db.put('meta', k, 'passphrase'); hasKey = true; closeKeySheet(); renderKeyRow(); toast('Fitting Room is set up on this phone.'); }
+  else { msg.textContent = res === 'wrong' ? 'That key didn’t work. Check you copied all of it.' : 'Couldn’t check the key. Check your internet.'; msg.className = 'bad'; }
+};
+function renderKeyRow() { $('#keyState').textContent = hasKey ? 'Connected' : 'Not set up'; }
+$('#keyRow').onclick = openKeySheet;
 async function ai(path, body, signal) {
   const pass = await db.get('meta', 'passphrase');
-  if (!pass) throw Object.assign(new Error('Open your private setup link on this phone first.'), { code: 'locked' });
+  if (!pass) throw Object.assign(new Error('Add your setup key first.'), { code: 'locked' });
   let r;
   try {
     r = await fetch(AI + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Passphrase': pass }, body: JSON.stringify(body), signal });
@@ -328,6 +357,7 @@ $('#vAgain').onclick = () => { const l = current; $('#viewer').hidden = true; ru
 // The click must stay synchronous so iOS treats it as the user's tap.
 $('#tryOn').onclick = () => {
   if (!navigator.onLine) return toast('Try On needs internet.');
+  if (!hasKey) return openKeySheet();
   draft = []; $('#pickLibrary').click();
 };
 $('#pickLibrary').addEventListener('change', async e => {
@@ -392,6 +422,7 @@ async function runTryOn(items, replace) {
   } catch (e) { err = e; }
   clearTimeout(timer); cancelTry = null; clearInterval(tick); $('#waiting').hidden = true;
   if (ctl.signal.aborted) return toast(ctl.signal.reason === 'cancel' ? 'Cancelled.' : 'That took too long. Try again.');
+  if (err?.code === 'locked') { hasKey = false; renderKeyRow(); return openKeySheet(); }
   if (err) return toast(err.message, 4500);
   const result = await (await fetch(`data:${res.mime};base64,${res.image}`)).blob();
   await db.put('meta', (await spent()) + COST[m], 'spend-' + monthKey());
@@ -470,6 +501,7 @@ addEventListener('online', onlineUI); addEventListener('offline', onlineUI);
   }
   fetch('demo/demo.json', { method: 'HEAD' }).then(r => { if (!r.ok) throw 0; }).catch(() => { $('#setupDemo').hidden = true; $('#loadDemo').hidden = true; });
   await load();
+  hasKey = !!(await db.get('meta', 'passphrase')); renderKeyRow();
   onlineUI();
   if (!me.face || !me.body) { renderSetup(); $('#setup').hidden = false; }
   renderAvatars(); renderGrid();

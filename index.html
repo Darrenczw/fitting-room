@@ -150,6 +150,12 @@
     </div>
     <p class="group-foot">Over the limit, Fitting Room asks before each try-on. It never blocks you.</p>
 
+    <p class="group-label">AI</p>
+    <div class="list">
+      <button class="row" id="keyRow"><span>Setup key</span><span class="value" id="keyState">Not set up</span></button>
+    </div>
+    <p class="group-foot">The key lets this phone use your AI credit. Keep it private.</p>
+
     <div class="list danger-list">
       <button class="row" id="loadDemo"><span>Load demo looks</span><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="row danger" id="eraseAll"><span>Delete all looks</span></button>
@@ -185,6 +191,21 @@
     <button id="cfYes"></button>
   </div>
   <button class="as-cancel" id="cfNo">Cancel</button>
+</div>
+
+<div class="alert" id="keySheet" hidden role="dialog" aria-labelledby="keyTitle">
+  <div class="alert-body">
+    <strong id="keyTitle">Set Up Fitting Room</strong>
+    <p id="keyMsg">Paste the setup link or key you were sent.</p>
+    <div class="key-field">
+      <input id="keyInput" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Setup link or key" aria-label="Setup link or key">
+      <button id="keyPaste" class="link bold">Paste</button>
+    </div>
+  </div>
+  <div class="alert-buttons">
+    <button id="keyCancel">Cancel</button>
+    <button id="keySave" class="bold">Save</button>
+  </div>
 </div>
 
 <div class="toast" id="toast" role="status" hidden></div>

@@ -213,3 +213,20 @@ body.selecting .tile .dot{display:none}
 .bar-icon{width:44px;height:44px;display:grid;place-items:center;color:var(--blue);border-radius:22px}
 .bar-icon.danger{color:var(--red)}
 .bar-icon:disabled{color:var(--label3)}
+
+/* iOS alert with a text field (setup key) */
+.alert{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);z-index:52;width:min(300px,calc(100% - 48px));border-radius:14px;overflow:hidden;
+  background:var(--bar);-webkit-backdrop-filter:blur(30px);backdrop-filter:blur(30px);animation:fade .2s}
+@media (prefers-color-scheme:dark){.alert{background:rgba(44,44,46,.94)}}
+.alert-body{padding:18px 16px 14px;text-align:center}
+.alert-body strong{display:block;font-size:17px;font-weight:600}
+.alert-body p{font-size:13px;line-height:18px;margin-top:4px;color:var(--label)}
+.alert-body p.bad{color:var(--red)}
+.key-field{display:flex;align-items:center;gap:6px;margin-top:12px;background:var(--bg3);border-radius:8px;padding:0 4px 0 8px;box-shadow:0 0 0 .5px var(--sep)}
+.key-field input{flex:1;min-width:0;height:34px;border:0;background:none;color:var(--label);font:15px var(--font);outline:none}
+.key-field .link{min-height:34px;font-size:15px}
+.alert-buttons{display:grid;grid-template-columns:1fr 1fr;box-shadow:0 -.5px 0 var(--sep)}
+.alert-buttons button{height:44px;color:var(--blue);font-size:17px}
+.alert-buttons button+button{box-shadow:-.5px 0 0 var(--sep)}
+.alert-buttons .bold{font-weight:600}
+.alert-buttons button:active{background:var(--fill)}
